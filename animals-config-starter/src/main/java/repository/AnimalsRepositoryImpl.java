@@ -1,7 +1,8 @@
 package repository;
 
 import dto.Animal;
-import dto.AnimalsEnum;
+import exception.NegativeAgeParameterException;
+import exception.SmallListSizeException;
 import org.springframework.beans.factory.annotation.Autowired;
 import service.CreateAnimalService;
 import service.helper.UtilityClass;
@@ -9,6 +10,7 @@ import service.helper.UtilityClass;
 import javax.annotation.PostConstruct;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -16,14 +18,18 @@ import static service.helper.SearchUtilityClass.*;
 import static service.helper.UtilityClass.getAnimalType;
 
 public class AnimalsRepositoryImpl implements AnimalsRepository {
-    private Map<String, List<Animal>> animalMap = new HashMap<>();
+    private Map<String, List<Animal>> animalMap = new ConcurrentHashMap<>();
 
     @Autowired
     private CreateAnimalService createAnimalService;
 
     @PostConstruct
     public void init() {
-        animalMap = createAnimalService.createAnimals();
+        Map<String, List<Animal>> tempAnimalMap = createAnimalService.createAnimals();
+        tempAnimalMap.forEach((key, value) -> {
+            List<Animal> synchronizedList = Collections.synchronizedList(value);
+            animalMap.put(key, synchronizedList);
+        });
     }
 
     public Map<String, List<Animal>> getAnimalMap() {
@@ -56,6 +62,9 @@ public class AnimalsRepositoryImpl implements AnimalsRepository {
         if (animalMap == null) {
             throw new NullPointerException("Your animal collection should not be null");
         }
+        if (n < 0) {
+            throw new NegativeAgeParameterException("Age parameter \"n\" should be greater or equals to 0");
+        }
 
         animalMap.values()
                 .forEach(
@@ -63,13 +72,13 @@ public class AnimalsRepositoryImpl implements AnimalsRepository {
                             Animal oldestAnimal = findAnimalWithMaxAge(animalList);
                             int maxAge = calculateAge(oldestAnimal.getBirthDate());
 
-                            if (n > 0 && maxAge < n) {
+                            if (maxAge < n) {
                                 result.put(oldestAnimal, maxAge);
                             } else {
                                 for (Animal animal : animalList) {
                                     int age = calculateAge(animal.getBirthDate());
 
-                                    if (age > n && n > 0) {
+                                    if (age > n) {
                                         result.put(animal, age);
                                     }
                                 }
@@ -153,9 +162,12 @@ public class AnimalsRepositoryImpl implements AnimalsRepository {
     }
 
     @Override
-    public List<String> findMinCostAnimals(List<Animal> animalList) {
+    public List<String> findMinCostAnimals(List<Animal> animalList) throws SmallListSizeException {
         if (animalList == null) {
             throw new NullPointerException("Your animal list should not be null");
+        }
+        if (animalList.size() < 3) {
+            throw new SmallListSizeException("Animal list must contain at least 3 animals");
         }
 
         return animalList.stream()
